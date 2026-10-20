@@ -1,5 +1,7 @@
 package com.hermes.kidsstory.ui
 
+import android.widget.Toast
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -7,6 +9,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -31,12 +34,14 @@ import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -47,6 +52,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -55,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.hermes.kidsstory.data.Category
 import com.hermes.kidsstory.data.LibraryScanner
+import com.hermes.kidsstory.data.Prefs
 import com.hermes.kidsstory.data.Story
 import com.hermes.kidsstory.player.PlayerController
 import com.hermes.kidsstory.player.rememberPlayerController
@@ -283,7 +290,7 @@ private fun EpisodeListScreen(story: Story, onBack: () -> Unit, onEpisode: (Int)
     }
 }
 
-// ---------- 4. 播放页 ----------
+// ---------- 4. 播放页（V2：睡眠定时 / 播放记忆 / 防误触）----------
 @Composable
 private fun PlayerScreen(
     story: Story,
@@ -292,10 +299,15 @@ private fun PlayerScreen(
     onBack: () -> Unit,
     onIndex: (Int) -> Unit
 ) {
+    val context = LocalContext.current
     var playing by remember { mutableStateOf(false) }
     var curIndex by remember { mutableIntStateOf(index) }
+    var sleepMinutes by remember { mutableIntStateOf(0) }
+    var sleepLeft by remember { mutableIntStateOf(0) }
+    var showSleep by remember { mutableStateOf(false) }
+    var restored by remember { mutableStateOf(false) }
 
-    // 轮询播放器状态（MVP 简单可靠）
+    // 轮询播放器状态
     LaunchedEffect(pc) {
         while (true) {
             pc?.let {
@@ -304,6 +316,60 @@ private fun PlayerScreen(
             }
             delay(400)
         }
+    }
+
+    // 播放记忆：进入时恢复上次位置（同一故事同一集）
+    LaunchedEffect(pc) {
+        if (restored) return@LaunchedEffect
+        restored = true
+        val p = Prefs.loadProgress(context) ?: return@LaunchedEffect
+        if (p.story == story.title && p.index == index && p.position > 3000L) {
+            delay(1200)
+            pc?.seekTo(p.position)
+        }
+    }
+
+    // 播放记忆：每 5 秒记录进度
+    LaunchedEffect(pc, curIndex) {
+        while (true) {
+            pc?.let { Prefs.saveProgress(context, story.title, it.currentIndex, it.position) }
+            delay(5000)
+        }
+    }
+
+    // 睡眠定时：倒计时 → 渐弱 → 暂停
+    LaunchedEffect(sleepMinutes) {
+        if (sleepMinutes <= 0) {
+            sleepLeft = 0
+            return@LaunchedEffect
+        }
+        var left = sleepMinutes * 60
+        sleepLeft = left
+        while (left > 0) {
+            delay(1000)
+            left--
+            sleepLeft = left
+        }
+        val v0 = pc?.volume ?: 1f
+        for (i in 1..10) {
+            pc?.volume = v0 * (1f - i / 10f)
+            delay(500)
+        }
+        pc?.controller?.pause()
+        pc?.volume = v0
+        sleepMinutes = 0
+    }
+
+    // 退出时保存进度
+    DisposableEffect(Unit) {
+        onDispose {
+            pc?.let { Prefs.saveProgress(context, story.title, it.currentIndex, it.position) }
+        }
+    }
+
+    // 防误触：系统返回键不直接退出
+    BackHandler {
+        Toast.makeText(context, "长按左上角 ← 退出播放", Toast.LENGTH_SHORT).show()
     }
 
     val ep = story.episodes.getOrNull(curIndex) ?: story.episodes.first()
@@ -320,14 +386,63 @@ private fun PlayerScreen(
         modifier = Modifier.fillMaxSize().background(SkyBlue),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        TopBar("${story.title}", onBack)
+        // 顶部行：← 长按退出 + 标题 + 🌙 睡眠定时
+        Row(
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .pointerInput(Unit) {
+                        detectTapGestures(onLongPress = { onBack() })
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Text("←", fontSize = 28.sp, color = Color(0xFF5D4037))
+            }
+            Text(
+                story.title,
+                modifier = Modifier.weight(1f),
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFF5D4037),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Box {
+                IconButton(onClick = { showSleep = true }) {
+                    Text(
+                        if (sleepMinutes > 0) "🌙" else "🌙",
+                        fontSize = 26.sp
+                    )
+                }
+                DropdownMenu(expanded = showSleep, onDismissRequest = { showSleep = false }) {
+                    listOf(0 to "关闭", 15 to "15 分钟", 30 to "30 分钟", 60 to "60 分钟")
+                        .forEach { (m, label) ->
+                            DropdownMenuItem(
+                                text = { Text(label, fontSize = 17.sp) },
+                                onClick = {
+                                    sleepMinutes = m
+                                    showSleep = false
+                                }
+                            )
+                        }
+                }
+            }
+        }
 
-        Spacer(Modifier.height(16.dp))
-        Text(
-            "第 ${curIndex + 1} 集",
-            fontSize = 16.sp,
-            color = Color(0xCC1A237E)
-        )
+        // 睡眠定时剩余时间
+        if (sleepMinutes > 0) {
+            Text(
+                "🌙 ${sleepLeft / 60}:${(sleepLeft % 60).toString().padStart(2, '0')}",
+                fontSize = 14.sp,
+                color = Color(0xCC1A237E)
+            )
+        }
+
+        Spacer(Modifier.height(10.dp))
+        Text("第 ${curIndex + 1} 集", fontSize = 16.sp, color = Color(0xCC1A237E))
         Spacer(Modifier.height(6.dp))
         Text(
             ep.title,
@@ -340,14 +455,14 @@ private fun PlayerScreen(
             modifier = Modifier.padding(horizontal = 16.dp)
         )
 
-        Spacer(Modifier.height(18.dp))
+        Spacer(Modifier.height(16.dp))
         Text(
             if (playing) "🎵" else "🎶",
             fontSize = 44.sp,
             modifier = Modifier.scale(scale)
         )
 
-        Spacer(Modifier.height(26.dp))
+        Spacer(Modifier.height(22.dp))
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
@@ -392,11 +507,7 @@ private fun PlayerScreen(
             }
         }
 
-        Spacer(Modifier.height(30.dp))
-        Text(
-            "共 ${story.episodes.size} 集",
-            fontSize = 14.sp,
-            color = Color(0xCC1A237E)
-        )
+        Spacer(Modifier.height(20.dp))
+        Text("共 ${story.episodes.size} 集 · 长按 ← 退出", fontSize = 13.sp, color = Color(0xAA1A237E))
     }
 }

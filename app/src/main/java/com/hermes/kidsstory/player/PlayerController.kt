@@ -50,6 +50,17 @@ class PlayerController(val controller: MediaController) {
     val isPlaying: Boolean get() = controller.isPlaying
     val currentIndex: Int get() = controller.currentMediaItemIndex
     val title: String get() = controller.mediaMetadata.title?.toString() ?: ""
+    val position: Long get() = controller.currentPosition
+
+    var volume: Float
+        get() = controller.volume
+        set(value) {
+            controller.volume = value.coerceIn(0f, 1f)
+        }
+
+    fun seekTo(pos: Long) {
+        controller.seekTo(pos)
+    }
 }
 
 /** Compose 里拿到与 PlaybackService 的连接。 */
