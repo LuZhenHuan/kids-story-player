@@ -10,10 +10,12 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -22,6 +24,7 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -31,6 +34,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -39,8 +43,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.SkipPrevious
 import androidx.compose.material3.Button
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -80,17 +82,11 @@ import com.hermes.kidsstory.player.PlayerController
 import com.hermes.kidsstory.player.rememberPlayerController
 import kotlinx.coroutines.delay
 
-// ---------- v0.4 配色 ----------
-private val Cream = Color(0xFFFFFBF5)
-private val Ink = Color(0xFF3E2723)
-private val Muted = Color(0xFF6D4C41)
-private val White = Color.White
-
 private val GRADS = listOf(
-    listOf(Color(0xFFFFD54F), Color(0xFFFFA000)),  // 黄橙
-    listOf(Color(0xFF4FC3F7), Color(0xFF0288D1)),  // 天蓝
-    listOf(Color(0xFF81C784), Color(0xFF2E7D32)),  // 薄荷
-    listOf(Color(0xFFFF8A65), Color(0xFFE64A19)),  // 珊瑚
+    listOf(Color(0xFFFFD54F), Color(0xFFFFA000)),
+    listOf(Color(0xFF4FC3F7), Color(0xFF0288D1)),
+    listOf(Color(0xFF81C784), Color(0xFF2E7D32)),
+    listOf(Color(0xFFFF8A65), Color(0xFFE64A19)),
 )
 
 private fun catIcon(title: String): String = when {
@@ -99,6 +95,47 @@ private fun catIcon(title: String): String = when {
     title.contains("英语") -> "ABC"
     title.contains("国学") -> "文"
     else -> "书"
+}
+
+/** 主题化卡片：渐变主题 = 圆角填充；粗野主题 = 白底 + 粗黑边 + 硬阴影。 */
+@Composable
+private fun ThemedCard(
+    theme: AppTheme,
+    shape: RoundedCornerShape,
+    brush: Brush? = null,
+    solid: Color = theme.card,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
+    content: @Composable BoxScope.() -> Unit
+) {
+    val fillMod = if (brush != null) Modifier.background(brush) else Modifier.background(solid)
+    val borderMod = if (theme.brutal) Modifier.border(3.dp, theme.text, shape) else Modifier
+    val clickMod = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+
+    if (theme.brutal) {
+        Box(modifier) {
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .offset(x = 5.dp, y = 5.dp)
+                    .clip(shape)
+                    .background(theme.text)
+            )
+            Box(
+                Modifier
+                    .matchParentSize()
+                    .clip(shape)
+                    .then(fillMod)
+                    .then(borderMod)
+                    .then(clickMod),
+                content = content
+            )
+        }
+    } else {
+        Box(modifier.clip(shape).then(fillMod).then(clickMod)) {
+            content()
+        }
+    }
 }
 
 sealed interface Screen {
@@ -115,6 +152,8 @@ fun KidsStoryApp() {
     var categories by remember { mutableStateOf(LibraryScanner.scan(context)) }
     var screen by remember { mutableStateOf<Screen>(Screen.Home) }
     var progress by remember { mutableStateOf(Prefs.loadProgress(context)) }
+    var themeId by remember { mutableStateOf(Prefs.loadTheme(context)) }
+    val theme = themeById(themeId)
     val pc = rememberPlayerController(context)
 
     val picker = rememberLauncherForActivityResult(
@@ -132,7 +171,6 @@ fun KidsStoryApp() {
         }
     }
 
-    // 返回键：返回上一层（首页才退出）
     BackHandler(enabled = screen !is Screen.Home) {
         screen = when (val s = screen) {
             is Screen.Player -> Screen.Episodes(s.category, s.story)
@@ -143,9 +181,10 @@ fun KidsStoryApp() {
         }
     }
 
-    Surface(color = Cream, modifier = Modifier.fillMaxSize()) {
+    Surface(color = theme.bg, modifier = Modifier.fillMaxSize()) {
         when (val s = screen) {
             Screen.Home -> HomeScreen(
+                theme = theme,
                 categories = categories,
                 progress = progress,
                 onCategory = { screen = Screen.Stories(it) },
@@ -157,6 +196,7 @@ fun KidsStoryApp() {
             )
 
             Screen.Settings -> SettingsScreen(
+                theme = theme,
                 musicUri = Prefs.loadMusicUri(context),
                 onBack = { screen = Screen.Home },
                 onPick = { picker.launch(null) },
@@ -164,16 +204,22 @@ fun KidsStoryApp() {
                     Prefs.saveMusicUri(context, null)
                     categories = LibraryScanner.scan(context)
                     screen = Screen.Home
+                },
+                onTheme = { id ->
+                    Prefs.saveTheme(context, id)
+                    themeId = id
                 }
             )
 
             is Screen.Stories -> StoryListScreen(
+                theme = theme,
                 category = s.category,
                 onBack = { screen = Screen.Home },
                 onStory = { screen = Screen.Episodes(s.category, it) }
             )
 
             is Screen.Episodes -> EpisodeListScreen(
+                theme = theme,
                 story = s.story,
                 onBack = { screen = Screen.Stories(s.category) },
                 onEpisode = { idx ->
@@ -183,6 +229,7 @@ fun KidsStoryApp() {
             )
 
             is Screen.Player -> PlayerScreen(
+                theme = theme,
                 story = s.story,
                 index = s.index,
                 pc = pc,
@@ -198,7 +245,12 @@ fun KidsStoryApp() {
 
 // ---------- 顶部标题栏 ----------
 @Composable
-private fun TopBar(title: String, onBack: (() -> Unit)? = null, action: (@Composable () -> Unit)? = null) {
+private fun TopBar(
+    theme: AppTheme,
+    title: String,
+    onBack: (() -> Unit)? = null,
+    action: (@Composable () -> Unit)? = null
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -207,7 +259,7 @@ private fun TopBar(title: String, onBack: (() -> Unit)? = null, action: (@Compos
     ) {
         if (onBack != null) {
             IconButton(onClick = onBack, modifier = Modifier.size(52.dp)) {
-                Icon(Icons.Filled.ArrowBack, contentDescription = "返回", tint = Ink)
+                Icon(Icons.Filled.ArrowBack, contentDescription = "返回", tint = theme.text)
             }
         } else {
             Spacer(Modifier.width(8.dp))
@@ -217,7 +269,7 @@ private fun TopBar(title: String, onBack: (() -> Unit)? = null, action: (@Compos
             modifier = Modifier.weight(1f),
             fontSize = 23.sp,
             fontWeight = FontWeight.Bold,
-            color = Ink,
+            color = theme.text,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
@@ -225,9 +277,10 @@ private fun TopBar(title: String, onBack: (() -> Unit)? = null, action: (@Compos
     }
 }
 
-// ---------- 1. 首页：2 列网格 ----------
+// ---------- 1. 首页 ----------
 @Composable
 private fun HomeScreen(
+    theme: AppTheme,
     categories: List<Category>,
     progress: Prefs.Progress?,
     onCategory: (Category) -> Unit,
@@ -235,9 +288,9 @@ private fun HomeScreen(
     onContinue: (Category, Story, Int) -> Unit
 ) {
     Column(Modifier.fillMaxSize()) {
-        TopBar("故事机", action = {
+        TopBar(theme, "故事机", action = {
             IconButton(onClick = onSettings, modifier = Modifier.size(52.dp)) {
-                Text("⚙", fontSize = 26.sp, color = Ink)
+                Text("⚙", fontSize = 26.sp, color = theme.text)
             }
         })
 
@@ -253,7 +306,7 @@ private fun HomeScreen(
                     "还没有故事\n\n点右上角 ⚙ 选择 MP3 文件夹",
                     fontSize = 18.sp,
                     textAlign = TextAlign.Center,
-                    color = Ink
+                    color = theme.text
                 )
             }
             return@Column
@@ -269,121 +322,146 @@ private fun HomeScreen(
                 item(span = { GridItemSpan(2) }) {
                     val (cat, story) = found
                     val idx = progress.index.coerceIn(0, story.episodes.size - 1)
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(70.dp)
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(Color(0xFF263238))
-                            .clickable { onContinue(cat, story, idx) }
-                            .padding(horizontal = 18.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                    ThemedCard(
+                        theme = theme,
+                        shape = RoundedCornerShape(20.dp),
+                        solid = if (theme.brutal) theme.text else Color(0xFF263238),
+                        modifier = Modifier.fillMaxWidth().height(70.dp),
+                        onClick = { onContinue(cat, story, idx) }
                     ) {
-                        Text("▶", fontSize = 22.sp, color = Color(0xFFFFD54F))
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("继续听", fontSize = 13.sp, color = Color(0xFFB0BEC5))
+                        Row(
+                            Modifier.fillMaxSize().padding(horizontal = 18.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
                             Text(
-                                "${story.title} · 第 ${idx + 1} 集",
-                                fontSize = 17.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = White,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis
+                                "▶",
+                                fontSize = 22.sp,
+                                color = if (theme.brutal) theme.palette[0] else Color(0xFFFFD54F)
                             )
+                            Spacer(Modifier.width(14.dp))
+                            Column(Modifier.weight(1f)) {
+                                Text("继续听", fontSize = 13.sp, color = Color(0xFFB0BEC5))
+                                Text(
+                                    "${story.title} · 第 ${idx + 1} 集",
+                                    fontSize = 17.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = Color.White,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
                         }
                     }
                 }
             }
 
             items(categories.size) { i ->
-                GradientCategoryCard(categories[i], GRADS[i % GRADS.size]) {
-                    onCategory(categories[i])
+                val colors = if (theme.brutal) {
+                    val c = theme.palette[i % theme.palette.size]
+                    listOf(c, c)
+                } else {
+                    GRADS[i % GRADS.size]
+                }
+                ThemedCard(
+                    theme = theme,
+                    shape = RoundedCornerShape(if (theme.brutal) 14.dp else 26.dp),
+                    brush = if (theme.brutal) null else Brush.linearGradient(colors),
+                    solid = colors[0],
+                    modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                    onClick = { onCategory(categories[i]) }
+                ) {
+                    Column(
+                        Modifier.align(Alignment.Center),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        val icon = catIcon(categories[i].title)
+                        Text(
+                            icon,
+                            fontSize = if (icon.length > 1) 34.sp else 44.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (theme.brutal && i % 4 == 0) theme.text else Color.White
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            categories[i].title,
+                            fontSize = 21.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = if (theme.brutal && i % 4 == 0) theme.text else Color.White,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                        Text(
+                            "${categories[i].stories.size} 个故事",
+                            fontSize = 13.sp,
+                            color = if (theme.brutal && i % 4 == 0) theme.text.copy(alpha = 0.7f)
+                            else Color.White.copy(alpha = 0.85f)
+                        )
+                    }
                 }
             }
         }
     }
 }
 
-@Composable
-private fun GradientCategoryCard(cat: Category, grad: List<Color>, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .aspectRatio(1f)
-            .clip(RoundedCornerShape(26.dp))
-            .background(Brush.linearGradient(grad))
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            val icon = catIcon(cat.title)
-            Text(
-                icon,
-                fontSize = if (icon.length > 1) 34.sp else 44.sp,
-                fontWeight = FontWeight.Bold,
-                color = White
-            )
-            Spacer(Modifier.height(8.dp))
-            Text(
-                cat.title,
-                fontSize = 21.sp,
-                fontWeight = FontWeight.Bold,
-                color = White,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                "${cat.stories.size} 个故事",
-                fontSize = 13.sp,
-                color = White.copy(alpha = 0.85f)
-            )
-        }
-    }
-}
-
 // ---------- 2. 故事列表 ----------
 @Composable
-private fun StoryListScreen(category: Category, onBack: () -> Unit, onStory: (Story) -> Unit) {
+private fun StoryListScreen(
+    theme: AppTheme,
+    category: Category,
+    onBack: () -> Unit,
+    onStory: (Story) -> Unit
+) {
     Column(Modifier.fillMaxSize()) {
-        TopBar(category.title, onBack)
+        TopBar(theme, category.title, onBack)
         LazyColumn(
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
             itemsIndexed(category.stories) { i, story ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(92.dp)
-                        .clip(RoundedCornerShape(22.dp))
-                        .background(White)
-                        .clickable { onStory(story) }
-                        .padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                ThemedCard(
+                    theme = theme,
+                    shape = RoundedCornerShape(if (theme.brutal) 12.dp else 22.dp),
+                    solid = theme.card,
+                    modifier = Modifier.fillMaxWidth().height(92.dp),
+                    onClick = { onStory(story) }
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(56.dp)
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(GRADS[i % GRADS.size].first()),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("书", fontSize = 24.sp, fontWeight = FontWeight.Bold, color = Ink)
+                        Box(
+                            Modifier
+                                .size(56.dp)
+                                .clip(RoundedCornerShape(if (theme.brutal) 8.dp else 18.dp))
+                                .background(theme.palette[i % theme.palette.size])
+                                .then(
+                                    if (theme.brutal) Modifier.border(
+                                        3.dp, theme.text, RoundedCornerShape(8.dp)
+                                    ) else Modifier
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "书",
+                                fontSize = 24.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = if (theme.brutal) Color.White else theme.text
+                            )
+                        }
+                        Spacer(Modifier.width(16.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                story.title,
+                                fontSize = 20.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = theme.text,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            Text("${story.episodes.size} 集", fontSize = 13.sp, color = theme.muted)
+                        }
+                        Text("›", fontSize = 24.sp, color = theme.muted)
                     }
-                    Spacer(Modifier.width(16.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            story.title,
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Ink,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Text("${story.episodes.size} 集", fontSize = 13.sp, color = Muted)
-                    }
-                    Text("›", fontSize = 24.sp, color = Color(0xFFBDBDBD))
                 }
             }
         }
@@ -392,41 +470,57 @@ private fun StoryListScreen(category: Category, onBack: () -> Unit, onStory: (St
 
 // ---------- 3. 集数列表 ----------
 @Composable
-private fun EpisodeListScreen(story: Story, onBack: () -> Unit, onEpisode: (Int) -> Unit) {
+private fun EpisodeListScreen(
+    theme: AppTheme,
+    story: Story,
+    onBack: () -> Unit,
+    onEpisode: (Int) -> Unit
+) {
     Column(Modifier.fillMaxSize()) {
-        TopBar(story.title, onBack)
+        TopBar(theme, story.title, onBack)
         LazyColumn(
             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 4.dp),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             itemsIndexed(story.episodes) { idx, ep ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(72.dp)
-                        .clip(RoundedCornerShape(18.dp))
-                        .background(White)
-                        .clickable { onEpisode(idx) }
-                        .padding(horizontal = 16.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                ThemedCard(
+                    theme = theme,
+                    shape = RoundedCornerShape(if (theme.brutal) 10.dp else 18.dp),
+                    solid = theme.card,
+                    modifier = Modifier.fillMaxWidth().height(72.dp),
+                    onClick = { onEpisode(idx) }
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(RoundedCornerShape(50))
-                            .background(Color(0xFF42A5F5)),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text("${idx + 1}", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = White)
+                        Box(
+                            Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(theme.palette[1 % theme.palette.size])
+                                .then(
+                                    if (theme.brutal) Modifier.border(3.dp, theme.text, CircleShape)
+                                    else Modifier
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Text(
+                                "${idx + 1}",
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                        }
+                        Spacer(Modifier.width(14.dp))
+                        Text(
+                            ep.title,
+                            fontSize = 19.sp,
+                            color = theme.text,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
                     }
-                    Spacer(Modifier.width(14.dp))
-                    Text(
-                        ep.title,
-                        fontSize = 19.sp,
-                        color = Ink,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
                 }
             }
         }
@@ -436,6 +530,7 @@ private fun EpisodeListScreen(story: Story, onBack: () -> Unit, onEpisode: (Int)
 // ---------- 4. 播放页 ----------
 @Composable
 private fun PlayerScreen(
+    theme: AppTheme,
     story: Story,
     index: Int,
     pc: PlayerController?,
@@ -451,6 +546,7 @@ private fun PlayerScreen(
     var restored by remember { mutableStateOf(false) }
     var position by remember { mutableLongStateOf(0L) }
     var duration by remember { mutableLongStateOf(0L) }
+    val fg = theme.onPlayer
 
     LaunchedEffect(pc) {
         while (true) {
@@ -464,7 +560,6 @@ private fun PlayerScreen(
         }
     }
 
-    // 播放记忆：恢复位置
     LaunchedEffect(pc) {
         if (restored) return@LaunchedEffect
         restored = true
@@ -475,7 +570,6 @@ private fun PlayerScreen(
         }
     }
 
-    // 播放记忆：每 5 秒保存
     LaunchedEffect(pc, curIndex) {
         while (true) {
             pc?.let { Prefs.saveProgress(context, story.title, it.currentIndex, it.position) }
@@ -483,7 +577,6 @@ private fun PlayerScreen(
         }
     }
 
-    // 睡眠定时
     LaunchedEffect(sleepMinutes) {
         if (sleepMinutes <= 0) {
             sleepLeft = 0
@@ -524,7 +617,7 @@ private fun PlayerScreen(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Brush.verticalGradient(listOf(Color(0xFF81D4FA), Color(0xFF29B6F6))))
+            .background(Brush.verticalGradient(theme.playerBg))
             .padding(horizontal = 16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
@@ -538,14 +631,14 @@ private fun PlayerScreen(
                     .pointerInput(Unit) { detectTapGestures(onTap = { onBack() }) },
                 contentAlignment = Alignment.Center
             ) {
-                Text("←", fontSize = 26.sp, color = White)
+                Text("←", fontSize = 26.sp, color = fg)
             }
             Text(
                 story.title,
                 modifier = Modifier.weight(1f),
                 fontSize = 19.sp,
                 fontWeight = FontWeight.Bold,
-                color = White,
+                color = fg,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
@@ -572,18 +665,18 @@ private fun PlayerScreen(
             Text(
                 "🌙 ${sleepLeft / 60}:${(sleepLeft % 60).toString().padStart(2, '0')}",
                 fontSize = 13.sp,
-                color = White
+                color = fg
             )
         }
 
         Spacer(Modifier.height(18.dp))
-        Text("第 ${curIndex + 1} 集", fontSize = 15.sp, color = White.copy(alpha = 0.9f))
+        Text("第 ${curIndex + 1} 集", fontSize = 15.sp, color = fg.copy(alpha = 0.9f))
         Spacer(Modifier.height(6.dp))
         Text(
             ep.title,
             fontSize = 24.sp,
             fontWeight = FontWeight.Bold,
-            color = White,
+            color = fg,
             textAlign = TextAlign.Center,
             maxLines = 2,
             overflow = TextOverflow.Ellipsis
@@ -593,7 +686,7 @@ private fun PlayerScreen(
         Text(
             if (playing) "♪" else "♫",
             fontSize = 52.sp,
-            color = White,
+            color = fg,
             modifier = Modifier.scale(pulseScale)
         )
 
@@ -609,9 +702,9 @@ private fun PlayerScreen(
                 }
             },
             colors = SliderDefaults.colors(
-                thumbColor = White,
-                activeTrackColor = White,
-                inactiveTrackColor = White.copy(alpha = 0.35f)
+                thumbColor = if (theme.brutal) theme.text else Color.White,
+                activeTrackColor = if (theme.brutal) theme.text else Color.White,
+                inactiveTrackColor = if (theme.brutal) Color.White else Color.White.copy(alpha = 0.35f)
             ),
             modifier = Modifier.fillMaxWidth()
         )
@@ -619,8 +712,8 @@ private fun PlayerScreen(
             Modifier.fillMaxWidth().padding(horizontal = 6.dp),
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            Text(fmtTime(position), fontSize = 12.sp, color = White)
-            Text(fmtTime(duration), fontSize = 12.sp, color = White)
+            Text(fmtTime(position), fontSize = 12.sp, color = fg)
+            Text(fmtTime(duration), fontSize = 12.sp, color = fg)
         }
 
         Spacer(Modifier.height(12.dp))
@@ -629,56 +722,62 @@ private fun PlayerScreen(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.Center
         ) {
-            Surface(
+            ThemedCard(
+                theme = theme,
                 shape = RoundedCornerShape(50),
-                color = White,
-                modifier = Modifier.size(62.dp).clickable {
+                solid = Color.White,
+                modifier = Modifier.size(62.dp),
+                onClick = {
                     pc?.prev()
                     if (curIndex > 0) onIndex(curIndex - 1)
                 }
             ) {
-                Box(contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Icon(
                         Icons.Filled.SkipPrevious, "上一集",
-                        tint = Color(0xFF29B6F6), modifier = Modifier.size(34.dp)
+                        tint = theme.playerAccent, modifier = Modifier.size(34.dp)
                     )
                 }
             }
             Spacer(Modifier.width(20.dp))
-            Surface(
+            ThemedCard(
+                theme = theme,
                 shape = RoundedCornerShape(50),
-                color = White,
-                modifier = Modifier.size(96.dp).clickable { pc?.toggle() }
+                solid = Color.White,
+                modifier = Modifier.size(96.dp),
+                onClick = { pc?.toggle() }
             ) {
-                Box(contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Icon(
                         if (playing) Icons.Filled.Pause else Icons.Filled.PlayArrow,
                         contentDescription = "播放/暂停",
-                        tint = Color(0xFF29B6F6),
+                        tint = theme.playerAccent,
                         modifier = Modifier.size(50.dp)
                     )
                 }
             }
             Spacer(Modifier.width(20.dp))
-            Surface(
+            ThemedCard(
+                theme = theme,
                 shape = RoundedCornerShape(50),
-                color = White,
-                modifier = Modifier.size(62.dp).clickable {
+                solid = Color.White,
+                modifier = Modifier.size(62.dp),
+                onClick = {
                     pc?.next()
                     if (curIndex < story.episodes.size - 1) onIndex(curIndex + 1)
                 }
             ) {
-                Box(contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                     Icon(
                         Icons.Filled.SkipNext, "下一集",
-                        tint = Color(0xFF29B6F6), modifier = Modifier.size(34.dp)
+                        tint = theme.playerAccent, modifier = Modifier.size(34.dp)
                     )
                 }
             }
         }
 
         Spacer(Modifier.height(16.dp))
-        Text("共 ${story.episodes.size} 集 · 自动连播", fontSize = 12.sp, color = White.copy(alpha = 0.85f))
+        Text("共 ${story.episodes.size} 集 · 自动连播", fontSize = 12.sp, color = fg.copy(alpha = 0.85f))
     }
 }
 
@@ -690,41 +789,64 @@ private fun fmtTime(ms: Long): String {
 // ---------- 5. 设置 ----------
 @Composable
 private fun SettingsScreen(
+    theme: AppTheme,
     musicUri: String?,
     onBack: () -> Unit,
     onPick: () -> Unit,
-    onReset: () -> Unit
+    onReset: () -> Unit,
+    onTheme: (String) -> Unit
 ) {
     Column(Modifier.fillMaxSize()) {
-        TopBar("设置", onBack)
+        TopBar(theme, "设置", onBack)
         Column(
             modifier = Modifier.padding(horizontal = 14.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Card(
+            // 主题
+            ThemedCard(
+                theme = theme,
                 shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = White)
+                solid = theme.card,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("主题", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = theme.text)
+                    Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                        ThemeChip(theme, "渐变风", "gradient", onTheme)
+                        ThemeChip(theme, "新粗野", "brutal", onTheme)
+                    }
+                    Text(
+                        "默认渐变风；新粗野 = 粗黑边框 + 硬阴影",
+                        fontSize = 12.sp,
+                        color = theme.muted
+                    )
+                }
+            }
+
+            // MP3 目录
+            ThemedCard(
+                theme = theme,
+                shape = RoundedCornerShape(20.dp),
+                solid = theme.card,
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Text("MP3 存放目录", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Ink)
+                    Text("MP3 存放目录", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = theme.text)
                     Text(
                         if (musicUri == null) "当前：内置示例" else "当前：自定义文件夹 ✓",
                         fontSize = 15.sp,
-                        color = Muted
+                        color = theme.muted
                     )
                     if (musicUri != null) {
                         Text(
                             musicUri.take(70),
                             fontSize = 10.sp,
-                            color = Muted,
+                            color = theme.muted,
                             maxLines = 2,
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                    Button(
-                        onClick = onPick,
-                        modifier = Modifier.fillMaxWidth().height(52.dp)
-                    ) {
+                    Button(onClick = onPick, modifier = Modifier.fillMaxWidth().height(52.dp)) {
                         Text("选择文件夹", fontSize = 17.sp)
                     }
                     if (musicUri != null) {
@@ -735,20 +857,39 @@ private fun SettingsScreen(
                 }
             }
 
-            Card(
+            // 说明
+            ThemedCard(
+                theme = theme,
                 shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = White)
+                solid = theme.card,
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("目录怎么放？", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = Ink)
+                    Text("目录怎么放？", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = theme.text)
                     Text(
                         "分类/故事/01 第1集.mp3\n分类/单集故事.mp3\n\n名字会去掉开头的 \"01 \" 序号",
                         fontSize = 14.sp,
-                        color = Muted,
+                        color = theme.muted,
                         lineHeight = 22.sp
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun ThemeChip(theme: AppTheme, label: String, id: String, onTheme: (String) -> Unit) {
+    val selected = theme.id == id
+    ThemedCard(
+        theme = theme,
+        shape = RoundedCornerShape(12.dp),
+        solid = if (selected) theme.palette[0] else theme.card,
+        modifier = Modifier.height(52.dp).width(120.dp),
+        onClick = { onTheme(id) }
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(label, fontSize = 17.sp, fontWeight = FontWeight.Bold, color = theme.text)
         }
     }
 }

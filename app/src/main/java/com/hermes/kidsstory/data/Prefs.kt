@@ -30,4 +30,11 @@ object Prefs {
     }
 
     fun loadMusicUri(context: Context): String? = sp(context).getString("music_uri", null)
+
+    /** 主题：gradient（默认）/ brutal。 */
+    fun saveTheme(context: Context, id: String) {
+        sp(context).edit().putString("theme", id).apply()
+    }
+
+    fun loadTheme(context: Context): String = sp(context).getString("theme", "gradient") ?: "gradient"
 }
