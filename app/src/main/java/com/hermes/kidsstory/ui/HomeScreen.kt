@@ -143,7 +143,8 @@ private fun CategoryCard(theme: AppTheme, cat: Category, index: Int, onClick: ()
         onClick = onClick
     ) {
         Column(
-            Modifier.align(Alignment.Center),
+            Modifier.fillMaxSize().padding(6.dp),
+            verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             val icon = catIcon(cat.title)

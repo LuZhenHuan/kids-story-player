@@ -55,8 +55,8 @@ fun fmtTime(ms: Long): String {
  * - 渐变主题：圆角填充（无边框）
  * - 粗野主题：白底 + 3dp 黑边 + 5dp 硬阴影
  *
- * 注意：内容层不能用 matchParentSize（否则 wrap 内容时高度塌陷），
- * 阴影层用 matchParentSize 即可（父级高度由内容层决定）。
+ * fillContent = true：内容层填满卡片（卡片有固定尺寸时用，如 aspectRatio / height）
+ * fillContent = false：内容层 wrap（卡片高度由内容撑开时用，如设置页）
  */
 @Composable
 fun ThemedCard(
@@ -65,6 +65,7 @@ fun ThemedCard(
     brush: Brush? = null,
     solid: Color = theme.card,
     modifier: Modifier = Modifier,
+    fillContent: Boolean = true,
     onClick: (() -> Unit)? = null,
     content: @Composable BoxScope.() -> Unit
 ) {
@@ -82,7 +83,7 @@ fun ThemedCard(
                     .background(theme.text)
             )
             Box(
-                Modifier
+                (if (fillContent) Modifier.matchParentSize() else Modifier)
                     .clip(shape)
                     .then(fillMod)
                     .then(borderMod)
@@ -91,7 +92,13 @@ fun ThemedCard(
             )
         }
     } else {
-        Box(modifier.clip(shape).then(fillMod).then(clickMod), content = content)
+        Box(modifier.clip(shape).then(fillMod).then(clickMod)) {
+            if (fillContent) {
+                Box(Modifier.fillMaxSize(), content = content)
+            } else {
+                content()
+            }
+        }
     }
 }
 

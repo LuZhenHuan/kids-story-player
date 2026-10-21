@@ -39,7 +39,8 @@ fun SettingsScreen(
                 theme = theme,
                 shape = RoundedCornerShape(20.dp),
                 solid = theme.card,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                fillContent = false
             ) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text("主题", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = theme.text)
@@ -60,7 +61,8 @@ fun SettingsScreen(
                 theme = theme,
                 shape = RoundedCornerShape(20.dp),
                 solid = theme.card,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                fillContent = false
             ) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("MP3 存放目录", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = theme.text)
@@ -116,7 +118,8 @@ fun SettingsScreen(
                 theme = theme,
                 shape = RoundedCornerShape(20.dp),
                 solid = theme.card,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                fillContent = false
             ) {
                 Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Text("目录怎么放？", fontSize = 19.sp, fontWeight = FontWeight.Bold, color = theme.text)
