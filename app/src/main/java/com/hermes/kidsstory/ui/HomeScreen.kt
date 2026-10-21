@@ -143,7 +143,7 @@ private fun CategoryCard(theme: AppTheme, cat: Category, index: Int, onClick: ()
         onClick = onClick
     ) {
         Column(
-            Modifier.fillMaxSize().padding(6.dp),
+            Modifier.fillMaxSize().padding(10.dp),
             verticalArrangement = Arrangement.Center,
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
