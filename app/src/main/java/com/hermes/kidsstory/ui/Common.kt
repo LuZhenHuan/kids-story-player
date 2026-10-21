@@ -75,11 +75,10 @@ fun ThemedCard(
     val clickMod = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
 
     if (theme.brutal) {
-        // 阴影层：卡片有固定尺寸时用 fillMaxSize，wrap 时用 matchParentSize
-        val shadowSize = if (fillContent) Modifier.fillMaxSize() else Modifier.matchParentSize()
         Box(modifier) {
+            // 阴影层：卡片有固定尺寸时用 fillMaxSize，wrap 时用 matchParentSize（必须在 BoxScope 内）
             Box(
-                shadowSize
+                (if (fillContent) Modifier.fillMaxSize() else Modifier.matchParentSize())
                     .offset(x = 5.dp, y = 5.dp)
                     .clip(shape)
                     .background(theme.text)
