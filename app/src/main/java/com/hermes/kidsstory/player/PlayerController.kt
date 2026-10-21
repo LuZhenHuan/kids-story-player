@@ -51,6 +51,7 @@ class PlayerController(val controller: MediaController) {
     val currentIndex: Int get() = controller.currentMediaItemIndex
     val title: String get() = controller.mediaMetadata.title?.toString() ?: ""
     val position: Long get() = controller.currentPosition
+    val duration: Long get() = controller.duration.coerceAtLeast(0L)
 
     var volume: Float
         get() = controller.volume
