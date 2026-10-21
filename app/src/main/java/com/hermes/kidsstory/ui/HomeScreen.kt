@@ -139,7 +139,7 @@ private fun CategoryCard(theme: AppTheme, cat: Category, index: Int, onClick: ()
         shape = RoundedCornerShape(if (theme.brutal) 14.dp else 26.dp),
         brush = if (theme.brutal) null else Brush.linearGradient(GRADS[index % GRADS.size]),
         solid = if (theme.brutal) paletteColor else theme.palette[0],
-        modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+        modifier = Modifier.fillMaxWidth().height(170.dp),
         onClick = onClick
     ) {
         Column(
