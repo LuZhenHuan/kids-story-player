@@ -21,4 +21,13 @@ object Prefs {
         val s = p.getString("last_story", null) ?: return null
         return Progress(s, p.getInt("last_index", 0), p.getLong("last_pos", 0))
     }
+
+    /** 用户自选的 MP3 根目录（SAF tree uri）；null = 用内置示例。 */
+    fun saveMusicUri(context: Context, uri: String?) {
+        sp(context).edit().apply {
+            if (uri == null) remove("music_uri") else putString("music_uri", uri)
+        }.apply()
+    }
+
+    fun loadMusicUri(context: Context): String? = sp(context).getString("music_uri", null)
 }
