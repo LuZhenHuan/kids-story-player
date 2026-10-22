@@ -10,6 +10,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.media3.common.MediaItem
 import androidx.media3.common.MediaMetadata
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.session.MediaController
 import androidx.media3.session.SessionToken
@@ -25,7 +26,8 @@ data class PlaybackState(
     val position: Long = 0L,
     val duration: Long = 0L,
     val index: Int = 0,
-    val title: String = ""
+    val title: String = "",
+    val error: String? = null
 )
 
 /** 对 MediaController 的薄封装，给 Compose 界面用。 */
@@ -37,6 +39,13 @@ class PlayerController(val controller: MediaController) {
     private val listener = object : Player.Listener {
         override fun onEvents(player: Player, events: Player.Events) {
             refresh()
+        }
+
+        override fun onPlayerError(error: PlaybackException) {
+            _state.value = _state.value.copy(
+                isPlaying = false,
+                error = "播放失败：${error.message ?: "文件可能已删除"}"
+            )
         }
     }
 
@@ -52,8 +61,14 @@ class PlayerController(val controller: MediaController) {
             position = controller.currentPosition,
             duration = controller.duration.coerceAtLeast(0L),
             index = controller.currentMediaItemIndex,
-            title = controller.mediaMetadata.title?.toString() ?: ""
+            title = controller.mediaMetadata.title?.toString() ?: "",
+            error = _state.value.error
         )
+    }
+
+    /** 清除播放错误（UI 提示后调用）。 */
+    fun clearError() {
+        _state.value = _state.value.copy(error = null)
     }
 
     fun playStory(story: Story, index: Int) {

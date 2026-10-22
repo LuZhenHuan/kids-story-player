@@ -1,5 +1,6 @@
 package com.hermes.kidsstory.ui
 
+import android.widget.Toast
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -70,6 +71,13 @@ fun PlayerScreen(
     val context = LocalContext.current
     val stateFlow = pc?.state
     val state by (stateFlow?.collectAsState() ?: remember { mutableStateOf(PlaybackState()) })
+
+    // 播放错误提示（文件被删 / URI 失效等）
+    LaunchedEffect(state.error) {
+        val err = state.error ?: return@LaunchedEffect
+        Toast.makeText(context, err, Toast.LENGTH_LONG).show()
+        pc?.clearError()
+    }
 
     var sleepMinutes by remember { mutableIntStateOf(0) }
     var sleepLeft by remember { mutableIntStateOf(0) }
