@@ -93,27 +93,7 @@ object LibraryScanner {
         val top = listChildren(context, tree, rootId).filter { it.isDir }
 
         return top.mapNotNull { catDoc ->
-            val catChildren = listChildren(context, tree, catDoc.id)
-            val stories = mutableListOf<Story>()
-
-            // 二级文件夹 = 多集故事
-            catChildren.filter { it.isDir }.forEach { st ->
-                val eps = listChildren(context, tree, st.id)
-                    .filter { !it.isDir && isMp3(it.name) }
-                    .sortedBy { it.name }
-                    .map { Episode(cleanTitle(it.name), it.uri) }
-                if (eps.isNotEmpty()) stories.add(Story(cleanTitle(st.name), eps))
-            }
-
-            // 分类下直接放 MP3 = 单集故事
-            catChildren.filter { !it.isDir && isMp3(it.name) }
-                .sortedBy { it.name }
-                .forEach { f ->
-                    stories.add(
-                        Story(cleanTitle(f.name), listOf(Episode(cleanTitle(f.name), f.uri)))
-                    )
-                }
-
+            val stories = collectStories(context, tree, catDoc.id, 0)
             if (stories.isEmpty()) null
             else {
                 val title = cleanTitle(catDoc.name)
@@ -122,7 +102,48 @@ object LibraryScanner {
         }
     }
 
-    private fun isMp3(name: String): Boolean = name.lowercase().endsWith(".mp3")
+    /**
+     * 在目录下收集故事（宽松层级）：
+     * - 目录里直接的音频 = 单集故事
+     * - 子目录里有音频 = 一个故事（多集）
+     * - 子目录里没有直接音频 = 继续向下找（兼容"专辑"等额外层级，最多 3 层）
+     */
+    private fun collectStories(context: Context, tree: Uri, dirId: String, depth: Int): List<Story> {
+        if (depth > 3) return emptyList()
+        val children = listChildren(context, tree, dirId)
+        val stories = mutableListOf<Story>()
+
+        // 直接放音频 = 单集故事
+        children.filter { !it.isDir && isAudio(it.name) }
+            .sortedBy { it.name }
+            .forEach { f ->
+                stories.add(Story(cleanTitle(f.name), listOf(Episode(cleanTitle(f.name), f.uri))))
+            }
+
+        // 子目录 = 故事（或继续向下）
+        children.filter { it.isDir }.sortedBy { it.name }.forEach { sub ->
+            val subChildren = listChildren(context, tree, sub.id)
+            val direct = subChildren.filter { !it.isDir && isAudio(it.name) }.sortedBy { it.name }
+            if (direct.isNotEmpty()) {
+                stories.add(
+                    Story(
+                        cleanTitle(sub.name),
+                        direct.map { Episode(cleanTitle(it.name), it.uri) }
+                    )
+                )
+            } else {
+                stories.addAll(collectStories(context, tree, sub.id, depth + 1))
+            }
+        }
+        return stories
+    }
+
+    private val AUDIO_EXT = listOf(".mp3", ".m4a", ".wav", ".flac", ".aac", ".ogg", ".opus")
+
+    private fun isAudio(name: String): Boolean {
+        val n = name.lowercase()
+        return AUDIO_EXT.any { n.endsWith(it) }
+    }
 
     /** 去掉扩展名，并去掉 "01 " / "01-" / "01_" 这类序号前缀。 */
     private fun cleanTitle(name: String): String {
