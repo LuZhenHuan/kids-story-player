@@ -49,6 +49,7 @@ object LibraryScanner {
 
     private val PREFIX = Regex("^\\d{1,3}[\\s._-]+")
     private const val CACHE_FILE = "scan_cache.json"
+    private const val CACHE_VERSION = 2
 
     fun scan(context: Context): List<Category> {
         val custom = Prefs.loadMusicUri(context)
@@ -201,7 +202,8 @@ object LibraryScanner {
                 co.put("s", sa)
                 arr.put(co)
             }
-            File(context.filesDir, CACHE_FILE).writeText(arr.toString())
+            val root = JSONObject().put("v", CACHE_VERSION).put("c", arr)
+            File(context.filesDir, CACHE_FILE).writeText(root.toString())
         }
     }
 
@@ -209,7 +211,9 @@ object LibraryScanner {
         val f = File(context.filesDir, CACHE_FILE)
         if (!f.exists()) return null
         return runCatching {
-            val arr = JSONArray(f.readText())
+            val root = JSONObject(f.readText())
+            if (root.optInt("v", 0) != CACHE_VERSION) return@runCatching null
+            val arr = root.getJSONArray("c")
             (0 until arr.length()).map { i ->
                 val co = arr.getJSONObject(i)
                 val sa = co.getJSONArray("s")

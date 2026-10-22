@@ -181,7 +181,7 @@ fun PlayerScreen(
             )
             Box {
                 IconButton(onClick = { showSleep = true }) {
-                    Text("🌙", fontSize = 24.sp)
+                    Text("月", fontSize = 17.sp, fontWeight = FontWeight.Bold, color = fg)
                 }
                 DropdownMenu(expanded = showSleep, onDismissRequest = { showSleep = false }) {
                     listOf(0 to "关闭", 15 to "15 分钟", 30 to "30 分钟", 60 to "60 分钟")
@@ -200,7 +200,7 @@ fun PlayerScreen(
 
         if (sleepMinutes > 0) {
             Text(
-                "🌙 ${sleepLeft / 60}:${(sleepLeft % 60).toString().padStart(2, '0')}",
+                "月 ${sleepLeft / 60}:${(sleepLeft % 60).toString().padStart(2, '0')}",
                 fontSize = 13.sp,
                 color = fg
             )
