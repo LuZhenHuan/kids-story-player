@@ -115,15 +115,15 @@ object LibraryScanner {
 
         // 直接放音频 = 单集故事
         children.filter { !it.isDir && isAudio(it.name) }
-            .sortedBy { it.name }
+            .sortedWith(NAME_ORDER)
             .forEach { f ->
                 stories.add(Story(cleanTitle(f.name), listOf(Episode(cleanTitle(f.name), f.uri))))
             }
 
         // 子目录 = 故事（或继续向下）
-        children.filter { it.isDir }.sortedBy { it.name }.forEach { sub ->
+        children.filter { it.isDir }.sortedWith(NAME_ORDER).forEach { sub ->
             val subChildren = listChildren(context, tree, sub.id)
-            val direct = subChildren.filter { !it.isDir && isAudio(it.name) }.sortedBy { it.name }
+            val direct = subChildren.filter { !it.isDir && isAudio(it.name) }.sortedWith(NAME_ORDER)
             if (direct.isNotEmpty()) {
                 stories.add(
                     Story(
@@ -136,6 +136,37 @@ object LibraryScanner {
             }
         }
         return stories
+    }
+
+    /** 文件名自然排序（"第2集" < "第10集"，"1" < "2" < "10"）。 */
+    private val NAME_ORDER = Comparator<Doc> { a, b -> naturalCompare(a.name, b.name) }
+
+    private fun naturalCompare(a: String, b: String): Int {
+        var i = 0
+        var j = 0
+        while (i < a.length && j < b.length) {
+            val ca = a[i]
+            val cb = b[j]
+            if (ca.isDigit() && cb.isDigit()) {
+                var ni = i
+                var nj = j
+                while (ni < a.length && a[ni].isDigit()) ni++
+                while (nj < b.length && b[nj].isDigit()) nj++
+                val na = a.substring(i, ni).trimStart('0').ifEmpty { "0" }
+                val nb = b.substring(j, nj).trimStart('0').ifEmpty { "0" }
+                if (na.length != nb.length) return na.length - nb.length
+                val cmp = na.compareTo(nb)
+                if (cmp != 0) return cmp
+                i = ni
+                j = nj
+            } else {
+                val cmp = ca.lowercaseChar().compareTo(cb.lowercaseChar())
+                if (cmp != 0) return cmp
+                i++
+                j++
+            }
+        }
+        return (a.length - i) - (b.length - j)
     }
 
     private val AUDIO_EXT = listOf(".mp3", ".m4a", ".wav", ".flac", ".aac", ".ogg", ".opus")
