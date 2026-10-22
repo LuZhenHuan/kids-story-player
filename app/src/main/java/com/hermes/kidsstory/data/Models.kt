@@ -2,8 +2,11 @@ package com.hermes.kidsstory.data
 
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.core.net.toUri
-import androidx.documentfile.provider.DocumentFile
+import org.json.JSONArray
+import org.json.JSONObject
+import java.io.File
 
 data class Episode(
     val title: String,
@@ -26,9 +29,10 @@ data class Category(
  * 1. 优先扫描用户选择的文件夹（SAF tree uri）
  * 2. 未选择 / 扫描为空时，回退到 assets/audio 内置示例
  *
- * 目录规则（v0.3）：
- *   根/分类A/故事X/01 第1集.mp3   → 多集故事
- *   根/分类A/单集故事.mp3          → 单集故事
+ * 性能要点（v0.6）：
+ * - 用 DocumentsContract + ContentResolver.query 批量取目录子项（一次 query 拿全部名字/类型），
+ *   避免 DocumentFile 逐项 IPC（旧实现每个文件要查 4~5 次，大目录会慢到几十秒）
+ * - 扫描结果 JSON 缓存，冷启动先读缓存秒开，再后台刷新
  */
 object LibraryScanner {
 
@@ -43,6 +47,9 @@ object LibraryScanner {
         "科普" to "🔬"
     )
 
+    private val PREFIX = Regex("^\\d{1,3}[\\s._-]+")
+    private const val CACHE_FILE = "scan_cache.json"
+
     fun scan(context: Context): List<Category> {
         val custom = Prefs.loadMusicUri(context)
         if (custom != null) {
@@ -52,46 +59,124 @@ object LibraryScanner {
         return scanAssets(context)
     }
 
-    // ---------- 外部文件夹（SAF）----------
-    private fun scanTree(context: Context, tree: Uri): List<Category> {
-        val root = DocumentFile.fromTreeUri(context, tree) ?: return emptyList()
-        return root.listFiles()
-            .filter { it.isDirectory }
-            .mapNotNull { cat ->
-                val files = cat.listFiles()
-                val stories = mutableListOf<Story>()
+    // ---------- SAF 批量扫描 ----------
+    private data class Doc(val id: String, val name: String, val isDir: Boolean, val uri: Uri)
 
-                // 二级文件夹 = 多集故事
-                files.filter { it.isDirectory }.forEach { st ->
-                    val eps = st.listFiles()
-                        .filter { isMp3(it.name) }
-                        .sortedBy { it.name ?: "" }
-                        .map { f -> Episode(cleanTitle(f.name), f.uri) }
-                    if (eps.isNotEmpty()) stories.add(Story(cleanTitle(st.name), eps))
+    /** 一次 query 取出一个目录的所有子项（名字/类型/URI）。 */
+    private fun listChildren(context: Context, tree: Uri, parentId: String): List<Doc> {
+        val childrenUri = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId)
+        val projection = arrayOf(
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE
+        )
+        val out = ArrayList<Doc>()
+        runCatching {
+            context.contentResolver.query(childrenUri, projection, null, null, null)?.use { c ->
+                while (c.moveToNext()) {
+                    val id = c.getString(0) ?: continue
+                    val name = c.getString(1) ?: ""
+                    val mime = c.getString(2) ?: ""
+                    val isDir = mime == DocumentsContract.Document.MIME_TYPE_DIR
+                    out.add(
+                        Doc(id, name, isDir, DocumentsContract.buildDocumentUriUsingTree(tree, id))
+                    )
                 }
-
-                // 分类下直接放 MP3 = 单集故事
-                files.filter { it.isFile && isMp3(it.name) }
-                    .sortedBy { it.name ?: "" }
-                    .forEach { f ->
-                        stories.add(
-                            Story(cleanTitle(f.name), listOf(Episode(cleanTitle(f.name), f.uri)))
-                        )
-                    }
-
-                if (stories.isEmpty()) null
-                else Category(cleanTitle(cat.name), EMOJI[cat.name] ?: "📚", stories)
             }
+        }
+        return out
     }
 
-    private fun isMp3(name: String?): Boolean =
-        name?.lowercase()?.endsWith(".mp3") == true
+    private fun scanTree(context: Context, tree: Uri): List<Category> {
+        val rootId = runCatching { DocumentsContract.getTreeDocumentId(tree) }.getOrNull()
+            ?: return emptyList()
+        val top = listChildren(context, tree, rootId).filter { it.isDir }
+
+        return top.mapNotNull { catDoc ->
+            val catChildren = listChildren(context, tree, catDoc.id)
+            val stories = mutableListOf<Story>()
+
+            // 二级文件夹 = 多集故事
+            catChildren.filter { it.isDir }.forEach { st ->
+                val eps = listChildren(context, tree, st.id)
+                    .filter { !it.isDir && isMp3(it.name) }
+                    .sortedBy { it.name }
+                    .map { Episode(cleanTitle(it.name), it.uri) }
+                if (eps.isNotEmpty()) stories.add(Story(cleanTitle(st.name), eps))
+            }
+
+            // 分类下直接放 MP3 = 单集故事
+            catChildren.filter { !it.isDir && isMp3(it.name) }
+                .sortedBy { it.name }
+                .forEach { f ->
+                    stories.add(
+                        Story(cleanTitle(f.name), listOf(Episode(cleanTitle(f.name), f.uri)))
+                    )
+                }
+
+            if (stories.isEmpty()) null
+            else {
+                val title = cleanTitle(catDoc.name)
+                Category(title, EMOJI[title] ?: "📚", stories)
+            }
+        }
+    }
+
+    private fun isMp3(name: String): Boolean = name.lowercase().endsWith(".mp3")
 
     /** 去掉扩展名，并去掉 "01 " / "01-" / "01_" 这类序号前缀。 */
-    private fun cleanTitle(name: String?): String {
-        val n = name ?: return "未命名"
-        val base = n.substringBeforeLast('.')
-        return base.replace(Regex("^\\d{1,3}[\\s._-]+"), "").ifBlank { base }
+    private fun cleanTitle(name: String): String {
+        val base = name.substringBeforeLast('.')
+        return base.replace(PREFIX, "").ifBlank { base }
+    }
+
+    // ---------- 扫描结果缓存 ----------
+    fun saveCache(context: Context, categories: List<Category>) {
+        runCatching {
+            val arr = JSONArray()
+            categories.forEach { c ->
+                val co = JSONObject().put("t", c.title).put("e", c.emoji)
+                val sa = JSONArray()
+                c.stories.forEach { s ->
+                    val so = JSONObject().put("t", s.title)
+                    val ea = JSONArray()
+                    s.episodes.forEach { e ->
+                        ea.put(JSONObject().put("t", e.title).put("u", e.uri.toString()))
+                    }
+                    so.put("e", ea)
+                    sa.put(so)
+                }
+                co.put("s", sa)
+                arr.put(co)
+            }
+            File(context.filesDir, CACHE_FILE).writeText(arr.toString())
+        }
+    }
+
+    fun loadCache(context: Context): List<Category>? {
+        val f = File(context.filesDir, CACHE_FILE)
+        if (!f.exists()) return null
+        return runCatching {
+            val arr = JSONArray(f.readText())
+            (0 until arr.length()).map { i ->
+                val co = arr.getJSONObject(i)
+                val sa = co.getJSONArray("s")
+                val stories = (0 until sa.length()).map { j ->
+                    val so = sa.getJSONObject(j)
+                    val ea = so.getJSONArray("e")
+                    val eps = (0 until ea.length()).map { k ->
+                        val eo = ea.getJSONObject(k)
+                        Episode(eo.getString("t"), eo.getString("u").toUri())
+                    }
+                    Story(so.getString("t"), eps)
+                }
+                Category(co.getString("t"), co.getString("e"), stories)
+            }
+        }.getOrNull()
+    }
+
+    fun clearCache(context: Context) {
+        runCatching { File(context.filesDir, CACHE_FILE).delete() }
     }
 
     // ---------- 内置示例（assets）----------
@@ -112,10 +197,7 @@ object LibraryScanner {
                         .filter { it.endsWith(".mp3", ignoreCase = true) }
                         .sorted()
                         .map { file ->
-                            Episode(
-                                title = cleanTitle(file),
-                                uri = "asset:///$path/$file".toUri()
-                            )
+                            Episode(cleanTitle(file), "asset:///$path/$file".toUri())
                         }
                     if (eps.isNotEmpty()) stories.add(Story(cleanTitle(item), eps))
                 } else if (item.endsWith(".mp3", ignoreCase = true)) {

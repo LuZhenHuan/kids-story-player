@@ -34,10 +34,19 @@ fun KidsStoryApp() {
     val theme = themeById(themeId)
     val pc = rememberPlayerController(context)
 
-    // 扫描放 IO 线程；scanKey 变化时重扫
+    // 扫描放 IO 线程；scanKey 变化时重扫。冷启动先读缓存，再后台刷新。
     LaunchedEffect(scanKey) {
-        loading = true
-        categories = withContext(Dispatchers.IO) { LibraryScanner.scan(context) }
+        if (scanKey == 0) {
+            val cached = withContext(Dispatchers.IO) { LibraryScanner.loadCache(context) }
+            if (!cached.isNullOrEmpty()) {
+                categories = cached
+                loading = false
+            }
+        }
+        loading = categories.isEmpty()
+        val fresh = withContext(Dispatchers.IO) { LibraryScanner.scan(context) }
+        categories = fresh
+        withContext(Dispatchers.IO) { LibraryScanner.saveCache(context, fresh) }
         progress = Prefs.loadProgress(context)
         loading = false
     }
@@ -76,6 +85,7 @@ fun KidsStoryApp() {
                 progress = progress,
                 onCategory = { screen = Screen.Stories(it) },
                 onSettings = { screen = Screen.Settings },
+                onRefresh = { scanKey++ },
                 onContinue = { cat, story, idx ->
                     pc?.playStory(story, idx)
                     screen = Screen.Player(cat, story, idx)

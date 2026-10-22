@@ -46,10 +46,14 @@ fun HomeScreen(
     progress: Prefs.Progress?,
     onCategory: (Category) -> Unit,
     onSettings: () -> Unit,
+    onRefresh: () -> Unit,
     onContinue: (Category, Story, Int) -> Unit
 ) {
     Column(Modifier.fillMaxSize()) {
         TopBar(theme, "故事机", action = {
+            IconButton(onClick = onRefresh, modifier = Modifier.size(52.dp)) {
+                Text("↻", fontSize = 24.sp, color = theme.text)
+            }
             IconButton(onClick = onSettings, modifier = Modifier.size(52.dp)) {
                 Text("⚙", fontSize = 26.sp, color = theme.text)
             }

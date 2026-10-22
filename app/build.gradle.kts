@@ -12,8 +12,8 @@ android {
         applicationId = "com.hermes.kidsstory"
         minSdk = 21
         targetSdk = 34
-        versionCode = 9
-        versionName = "0.5.4"
+        versionCode = 10
+        versionName = "0.5.5"
     }
 
     buildTypes {
